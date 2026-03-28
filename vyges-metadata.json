@@ -1,0 +1,58 @@
+{
+  "$schema": "https://vyges.com/schema/v1/vyges-metadata.schema.json",
+  "x-version": "1.0.0",
+  "name": "vyges-gpio-lite",
+  "version": "0.1.0",
+  "description": "IP imported from https://github.com/vyges/vyges-gpio-lite",
+  "license": "Apache-2.0",
+  "maturity": "draft",
+  "target": [
+    "asic",
+    "fpga"
+  ],
+  "design_type": [
+    "digital"
+  ],
+  "created": "2026-03-28T01:51:57Z",
+  "updated": "2026-03-28T01:51:57Z",
+  "source": {
+    "type": "git",
+    "url": "https://github.com/vyges/vyges-gpio-lite",
+    "commit": "253e96f492dc7f58ab9794b1c755c931603fb334",
+    "private": false,
+    "indexing": true
+  },
+  "maintainers": [
+    {
+      "name": "Vyges",
+      "email": "team@vyges.com",
+      "github": "vyges"
+    }
+  ],
+  "interfaces": [],
+  "parameters": [],
+  "architecture": {
+    "type": "peripheral",
+    "features": []
+  },
+  "categories": [
+    {
+      "main_category": "Miscellaneous",
+      "sub_category": "Custom Accelerators"
+    }
+  ],
+  "trust": {
+    "verification_level": "unknown",
+    "maintained": true
+  },
+  "_note": "AI enrichment failed. Manual population needed.",
+  "meta": {
+    "template": {
+      "generator": "upstream-sync-fallback",
+      "generated_at": "2026-03-28T01:51:57Z"
+    },
+    "schema": {
+      "version": "1.0.0"
+    }
+  }
+}
