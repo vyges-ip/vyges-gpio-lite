@@ -3,7 +3,7 @@ upstream:
   type: "standalone"
   repo: https://github.com/vyges/vyges-gpio-lite
   branch: main
-  commit: d6302f308e04acad32ea3b82421418e35d9ec223
+  commit: 5264bce629ad4ba63ea487015c24a1464b4d70d9
   extracted_at: "2026-03-28T01:51:07Z"
 import:
   rtl:
@@ -16,5 +16,4 @@ import:
 license:
   spdx: Apache-2.0
   file: LICENSE
-
 metadata_locked: true
