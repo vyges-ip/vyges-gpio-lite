@@ -3,7 +3,7 @@ upstream:
   type: "standalone"
   repo: https://github.com/vyges/vyges-gpio-lite
   branch: main
-  commit: 5264bce629ad4ba63ea487015c24a1464b4d70d9
+  commit: 7eeaf2306d2db3df8e650984976c308add80547f
   extracted_at: "2026-03-28T01:51:07Z"
 import:
   rtl:
