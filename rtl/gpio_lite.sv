@@ -31,15 +31,15 @@ module gpio_lite
   // ---------------------------------------------------------------------------
   // Register offsets
   // ---------------------------------------------------------------------------
-  localparam logic [7:0] ADDR_DATA_OUT  = 8'h00;
-  localparam logic [7:0] ADDR_DATA_IN   = 8'h04;
-  localparam logic [7:0] ADDR_DIR       = 8'h08;
-  localparam logic [7:0] ADDR_INTR_EN   = 8'h0C;
-  localparam logic [7:0] ADDR_INTR_RISE = 8'h10;
-  localparam logic [7:0] ADDR_INTR_FALL = 8'h14;
-  localparam logic [7:0] ADDR_INTR_ST   = 8'h18;
-  localparam logic [7:0] ADDR_OUT_SET   = 8'h1C;
-  localparam logic [7:0] ADDR_OUT_CLR   = 8'h20;
+  localparam logic [11:0] ADDR_DATA_OUT  = 12'h000;
+  localparam logic [11:0] ADDR_DATA_IN   = 12'h004;
+  localparam logic [11:0] ADDR_DIR       = 12'h008;
+  localparam logic [11:0] ADDR_INTR_EN   = 12'h00C;
+  localparam logic [11:0] ADDR_INTR_RISE = 12'h010;
+  localparam logic [11:0] ADDR_INTR_FALL = 12'h014;
+  localparam logic [11:0] ADDR_INTR_ST   = 12'h018;
+  localparam logic [11:0] ADDR_OUT_SET   = 12'h01C;
+  localparam logic [11:0] ADDR_OUT_CLR   = 12'h020;
 
   // ---------------------------------------------------------------------------
   // Registers
@@ -87,20 +87,44 @@ module gpio_lite
   // TL-UL bus decode
   // ---------------------------------------------------------------------------
   logic        tl_req;
+  logic        tl_a_ready;
+  logic        rsp_valid_q;
   logic        tl_we;
   logic [31:0] tl_addr;
   logic [31:0] tl_wdata;
   logic [3:0]  tl_be;
 
-  assign tl_req   = tl_i.a_valid;
+  // A request is accepted unless a response is still waiting on d_ready
+  // (TL-UL: the response must stay valid and unchanged until it is taken).
+  assign tl_a_ready = !rsp_valid_q || tl_i.d_ready;
+  assign tl_req     = tl_i.a_valid && tl_a_ready;
   assign tl_we    = (tl_i.a_opcode == PutFullData) || (tl_i.a_opcode == PutPartialData);
   assign tl_addr  = tl_i.a_address;
   assign tl_wdata = tl_i.a_data;
   assign tl_be    = tl_i.a_mask;
 
-  // Address byte-select (lower 8 bits, word-aligned)
-  logic [7:0] addr_sel;
-  assign addr_sel = tl_addr[7:0];
+  // Any opcode other than Get, PutFullData and PutPartialData is not
+  // supported: it changes nothing and is answered with an AccessAck carrying
+  // d_error.
+  // TL-UL byte enables: only lanes whose a_mask bit is set are written.
+  logic [31:0]         tl_bmask;
+  logic [NUM_PINS-1:0] wmask, wbits;
+  assign tl_bmask = {{8{tl_be[3]}}, {8{tl_be[2]}}, {8{tl_be[1]}}, {8{tl_be[0]}}};
+  assign wmask    = tl_bmask[NUM_PINS-1:0];
+  assign wbits    = tl_wdata[NUM_PINS-1:0] & wmask;
+
+  logic tl_illegal;
+  assign tl_illegal = !tl_we && (tl_i.a_opcode != Get);
+
+  // Register offset: the whole 4 KB window is decoded, so offsets above the
+  // register map do not alias the registers.
+  logic [11:0] addr_sel;
+  assign addr_sel = tl_addr[11:0];
+
+  // An offset outside the register map (or not word-aligned) is answered
+  // with d_error.
+  logic reg_mapped;
+  assign reg_mapped = (addr_sel <= ADDR_OUT_CLR) && (addr_sel[1:0] == 2'b00);
 
   // ---------------------------------------------------------------------------
   // Register read
@@ -142,20 +166,20 @@ module gpio_lite
 
       if (tl_req && tl_we) begin
         unique case (addr_sel)
-          ADDR_DATA_OUT:  reg_data_out <= tl_wdata[NUM_PINS-1:0];
+          ADDR_DATA_OUT:  reg_data_out <= (reg_data_out & ~wmask) | wbits;
           // DATA_IN is read-only
-          ADDR_DIR:       reg_dir      <= tl_wdata[NUM_PINS-1:0];
-          ADDR_INTR_EN:   reg_intr_en  <= tl_wdata[NUM_PINS-1:0];
-          ADDR_INTR_RISE: reg_intr_rise<= tl_wdata[NUM_PINS-1:0];
-          ADDR_INTR_FALL: reg_intr_fall<= tl_wdata[NUM_PINS-1:0];
+          ADDR_DIR:       reg_dir      <= (reg_dir & ~wmask) | wbits;
+          ADDR_INTR_EN:   reg_intr_en  <= (reg_intr_en & ~wmask) | wbits;
+          ADDR_INTR_RISE: reg_intr_rise<= (reg_intr_rise & ~wmask) | wbits;
+          ADDR_INTR_FALL: reg_intr_fall<= (reg_intr_fall & ~wmask) | wbits;
           ADDR_INTR_ST: begin
             // Write-1-to-clear: clear bits where wdata is 1, preserve new edges
-            reg_intr_st <= (reg_intr_st & ~tl_wdata[NUM_PINS-1:0])
+            reg_intr_st <= (reg_intr_st & ~wbits)
                          | (rise_detect & reg_intr_rise)
                          | (fall_detect & reg_intr_fall);
           end
-          ADDR_OUT_SET:   reg_data_out <= reg_data_out | tl_wdata[NUM_PINS-1:0];
-          ADDR_OUT_CLR:   reg_data_out <= reg_data_out & ~tl_wdata[NUM_PINS-1:0];
+          ADDR_OUT_SET:   reg_data_out <= reg_data_out | wbits;
+          ADDR_OUT_CLR:   reg_data_out <= reg_data_out & ~wbits;
           default: ;
         endcase
       end
@@ -174,13 +198,13 @@ module gpio_lite
   assign gpio_oe_o = reg_dir;
 
   // ---------------------------------------------------------------------------
-  // TL-UL response (single-cycle, always ready)
+  // TL-UL response (next cycle; held while the host stalls d_ready)
   // ---------------------------------------------------------------------------
-  logic rsp_valid_q;
   logic rsp_we_q;
   logic [31:0] rsp_data_q;
   logic [7:0]  rsp_source_q;
   logic [1:0]  rsp_size_q;
+  logic        rsp_error_q;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
@@ -189,12 +213,14 @@ module gpio_lite
       rsp_data_q   <= 32'h0;
       rsp_source_q <= 8'h0;
       rsp_size_q   <= 2'h0;
-    end else begin
+      rsp_error_q  <= 1'b0;
+    end else if (tl_a_ready) begin
       rsp_valid_q  <= tl_req;
-      rsp_we_q     <= tl_we;
+      rsp_we_q     <= tl_we || tl_illegal;   // AccessAck
       rsp_data_q   <= rdata;
       rsp_source_q <= tl_i.a_source;
       rsp_size_q   <= tl_i.a_size;
+      rsp_error_q  <= !reg_mapped || tl_illegal;
     end
   end
 
@@ -206,8 +232,8 @@ module gpio_lite
   assign tl_o.d_sink   = '0;
   assign tl_o.d_data   = rsp_data_q;
   assign tl_o.d_user   = '0;
-  assign tl_o.d_error  = 1'b0;
-  assign tl_o.a_ready  = 1'b1; // always accept
+  assign tl_o.d_error  = rsp_error_q;
+  assign tl_o.a_ready  = tl_a_ready;
 
 endmodule
 
